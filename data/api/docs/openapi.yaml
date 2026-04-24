@@ -1,0 +1,635 @@
+openapi: 3.0.3
+info:
+  title: PhoneFilter API
+  version: 1.0.0
+  description: |
+    REST API for the PhoneFilter ESP32 web UI. On a normal **LAN**, TOTP on `/api/auth/login` issues a session; protected requests use `X-Session-Token`.
+    In **Wi-Fi setup SoftAP** mode (`setup_ap` in `/api/setup/status`), **only** `/api/wifi/config` (and helpers like `/api/totp/time/provision`) omit the session for read/write; other routes still require a session. **OTA** needs `X-TOTP` plus a session on the LAN, or `X-TOTP` alone from the SoftAP.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: /
+paths:
+  /:
+    get:
+      summary: Main web interface
+      responses:
+        '200':
+          description: HTML page
+
+  /api/auth/status:
+    get:
+      summary: Session authentication status
+      responses:
+        '200':
+          description: Status payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authenticated:
+                    type: boolean
+                    description: True when a valid `X-Session-Token` is present.
+                  wifi_setup_portal:
+                    type: boolean
+                    description: True on the open setup SoftAP; Wi-Fi API is open without a session (see `/api/wifi/config`).
+
+  /api/auth/login:
+    post:
+      summary: Login with TOTP code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [totp]
+              properties:
+                totp:
+                  type: string
+                  example: '123456'
+      responses:
+        '200':
+          description: Logged in, cookie set
+        '400':
+          description: Invalid payload
+        '401':
+          description: Invalid TOTP
+
+  /api/auth/logout:
+    post:
+      summary: Logout current session
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Logged out
+
+  /api/firmware/ota:
+    post:
+      summary: OTA firmware upload
+      description: |
+        Raw firmware binary (`firmware.bin`). Requires a fresh **step-up** TOTP in `X-TOTP`. On **LAN**, also send `X-Session-Token` from `/api/auth/login`. On **setup SoftAP**, session is optional; `X-TOTP` is always required.
+        Use a fixed `Content-Length` matching the file size. Device reboots into the new image on success.
+      parameters:
+        - name: X-Session-Token
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: X-TOTP
+          in: header
+          required: true
+          schema:
+            type: string
+            example: '123456'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Update complete; device restarts (response may not reach client)
+        '400':
+          description: Bad payload or image too large for OTA partition
+        '401':
+          description: Invalid or missing X-TOTP; on LAN, missing session when not in setup AP mode
+        '500':
+          description: Flash or OTA error
+
+  /api/audit:
+    get:
+      summary: Read in-memory audit log events
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Most recent events first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    ts:
+                      type: string
+                    action:
+                      type: string
+                    detail:
+                      type: string
+
+  /api/blacklist:
+    get:
+      summary: List incoming blacklist entries
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Number list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /api/blacklist/add:
+    post:
+      summary: Add incoming blacklist entry
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NumberPayload'
+      responses:
+        '200':
+          description: Added
+
+  /api/blacklist/remove:
+    post:
+      summary: Remove incoming blacklist entry
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NumberPayload'
+      responses:
+        '200':
+          description: Removed
+
+  /api/whitelist:
+    get:
+      summary: List incoming whitelist entries
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Number list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /api/whitelist/add:
+    post:
+      summary: Add incoming whitelist entry
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NumberPayload'
+      responses:
+        '200':
+          description: Added
+
+  /api/whitelist/remove:
+    post:
+      summary: Remove incoming whitelist entry
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NumberPayload'
+      responses:
+        '200':
+          description: Removed
+
+  /api/outgoing/whitelist:
+    get:
+      summary: List outgoing whitelist prefixes
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Prefix list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /api/outgoing/whitelist/add:
+    post:
+      summary: Add outgoing whitelist prefix
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prefix]
+              properties:
+                prefix:
+                  type: string
+      responses:
+        '200':
+          description: Added
+
+  /api/outgoing/whitelist/remove:
+    post:
+      summary: Remove outgoing whitelist prefix
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prefix]
+              properties:
+                prefix:
+                  type: string
+      responses:
+        '200':
+          description: Removed
+
+  /api/outgoing/blacklist:
+    get:
+      summary: List outgoing blacklist prefixes
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Prefix list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /api/outgoing/blacklist/add:
+    post:
+      summary: Add outgoing blacklist prefix
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prefix]
+              properties:
+                prefix:
+                  type: string
+      responses:
+        '200':
+          description: Added
+
+  /api/outgoing/blacklist/remove:
+    post:
+      summary: Remove outgoing blacklist prefix
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prefix]
+              properties:
+                prefix:
+                  type: string
+      responses:
+        '200':
+          description: Removed
+
+  /api/outgoing/shortcuts:
+    get:
+      summary: List outgoing shortcuts
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Shortcut list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    trigger:
+                      type: string
+                    replacement:
+                      type: string
+
+  /api/outgoing/shortcuts/add:
+    post:
+      summary: Add outgoing shortcut
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trigger, replacement]
+              properties:
+                trigger:
+                  type: string
+                replacement:
+                  type: string
+      responses:
+        '200':
+          description: Added
+
+  /api/outgoing/shortcuts/remove:
+    post:
+      summary: Remove outgoing shortcut
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trigger]
+              properties:
+                trigger:
+                  type: string
+      responses:
+        '200':
+          description: Removed
+
+  /api/totp/status:
+    get:
+      summary: TOTP readiness status
+      responses:
+        '200':
+          description: Status payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  time_synced:
+                    type: boolean
+
+  /api/totp/time:
+    get:
+      summary: Read device time
+      responses:
+        '200':
+          description: Time payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  epoch:
+                    type: integer
+                  iso:
+                    type: string
+                  time_synced:
+                    type: boolean
+
+  /api/totp/sync:
+    post:
+      summary: Trigger NTP synchronization
+      responses:
+        '200':
+          description: Sync success
+        '500':
+          description: Sync failed
+
+  /api/totp/time/provision:
+    post:
+      summary: Set device clock from browser Unix time (setup hotspot only)
+      description: Allowed only while the device is in Wi-Fi setup SoftAP mode so TOTP can validate before STA is configured. Trusts the client clock.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unix]
+              properties:
+                unix:
+                  type: integer
+                  format: int64
+      responses:
+        '200':
+          description: Time applied
+        '400':
+          description: Invalid payload
+        '403':
+          description: Not in setup AP mode
+
+  /api/setup/status:
+    get:
+      summary: Whether the device is in Wi-Fi setup SoftAP mode
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  setup_ap:
+                    type: boolean
+                  ap_ip:
+                    type: string
+
+  /api/totp/secrets:
+    get:
+      summary: List TOTP token names
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Token name list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+
+  /api/totp/bootstrap/status:
+    get:
+      summary: Bootstrap enrollment status
+      responses:
+        '200':
+          description: Bootstrap state payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  needs_bootstrap:
+                    type: boolean
+                  secret_count:
+                    type: integer
+                  has_pending_bootstrap:
+                    type: boolean
+
+  /api/totp/bootstrap/new:
+    post:
+      summary: Create or fetch bootstrap TOTP payload
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Optional bootstrap token display name.
+      responses:
+        '200':
+          description: Bootstrap token payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  otpauth_uri:
+                    type: string
+        '409':
+          description: Bootstrap already completed
+
+  /api/totp/secrets/new:
+    post:
+      summary: Create new named TOTP token
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Created with one-time QR payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  otpauth_uri:
+                    type: string
+        '409':
+          description: Name already exists
+
+  /api/totp/secrets/remove:
+    post:
+      summary: Remove TOTP token by name
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Removed
+
+  /api/wifi/config:
+    get:
+      summary: Read Wi-Fi STA credentials (from config on LittleFS)
+      description: On the LAN, requires `X-Session-Token`. On the setup SoftAP, allowed without a session.
+      responses:
+        '200':
+          description: SSID and password (plaintext; HTTPS only)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [wifi_ssid, wifi_password]
+                properties:
+                  wifi_ssid:
+                    type: string
+                  wifi_password:
+                    type: string
+    post:
+      summary: Update Wi-Fi credentials (persisted to config.json; reboot to apply)
+      description: On the LAN, requires `X-Session-Token`. On the setup SoftAP, allowed without a session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wifi_ssid]
+              properties:
+                wifi_ssid:
+                  type: string
+                wifi_password:
+                  type: string
+                  description: May be empty for an open AP
+      responses:
+        '200':
+          description: Saved; device should reboot to reconnect to the AP
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  needs_restart:
+                    type: boolean
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: pf_session
+      description: Usually use `/api/auth/login` with TOTP, then `X-Session-Token`. **Wi-Fi** read/write on the setup SoftAP is allowed without a session; **OTA** on SoftAP still needs `X-TOTP` (session optional there).
+  schemas:
+    NumberPayload:
+      type: object
+      required: [number]
+      properties:
+        number:
+          type: string

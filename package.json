@@ -1,0 +1,10 @@
+{
+  "name": "phonefilter-ui",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./tools/tailwind-input.css -o ./data/static/css/tw.min.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

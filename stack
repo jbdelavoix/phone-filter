@@ -1,0 +1,364 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Enable verbose shell tracing when needed:
+#   STACK_DEBUG=1 ./stack <command>
+if [ "${STACK_DEBUG:-0}" = "1" ]; then
+    set -x
+fi
+
+# Export assignments from .env when present (e.g. OTA_HOST / OTA_URL for ./stack ota).
+if [ -f .env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+fi
+
+run_build() {
+    pio run -e "$ENV_NAME"
+}
+
+# Regenerate Tailwind purged CSS for data/static/ when uploading LittleFS.
+run_ui_build() {
+    if [ "${SKIP_UI_BUILD:-0}" = "1" ]; then
+        return 0
+    fi
+    if [ ! -f package.json ]; then
+        return 0
+    fi
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "Note: npm not found — skipping \`npm run build:css\` (using existing data/static/css/tw.min.css)." >&2
+        return 0
+    fi
+    if [ ! -d node_modules ]; then
+        echo "Running npm install (Tailwind)…"
+        npm install
+    fi
+    echo "Running npm run build:css…"
+    npm run build:css
+}
+
+# OTADATA erase after USB firmware upload — keep addr/len in sync with partitions_ota.csv.
+_OTADATA_ADDR="0xd000"
+_OTADATA_LEN="0x2000"
+
+find_pio_esptool() {
+    local base="${PLATFORMIO_CORE_DIR:-${HOME}/.platformio}"
+    local py="${base}/packages/tool-esptoolpy/esptool.py"
+    if [ -f "$py" ]; then
+        printf '%s' "$py"
+        return 0
+    fi
+    return 1
+}
+
+# After `pio upload`, clear otadata so the next boot uses ota_0 (fresh USB image), not the
+# other OTA slot. PlatformIO has no bash-native post-upload hook; `./stack upload` / `flash`
+# / `start` run this. Plain `pio run -t upload` does not — use stack or erase manually.
+erase_otadata_usb() {
+    local skip_raw="${SKIP_ERASE_OTADATA:-}"
+    local skip_lc
+    skip_lc="$(printf '%s' "$skip_raw" | tr '[:upper:]' '[:lower:]')"
+    skip_lc="${skip_lc#"${skip_lc%%[![:space:]]*}"}"
+    skip_lc="${skip_lc%"${skip_lc##*[![:space:]]}"}"
+    case "$skip_lc" in
+        1|true|yes)
+            echo "SKIP_ERASE_OTADATA set — not erasing otadata."
+            return 0
+            ;;
+    esac
+
+    local esptool_py
+    if ! esptool_py="$(find_pio_esptool)"; then
+        echo 'Note: PlatformIO esptool.py not found (~/.platformio/packages/tool-esptoolpy/) — skipping otadata erase. Build once with PlatformIO or erase otadata manually.' >&2
+        return 0
+    fi
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "Note: python3 not on PATH — cannot run esptool for otadata erase (skipped)." >&2
+        return 0
+    fi
+
+    local baud="${ERASE_OTADATA_BAUD:-460800}"
+    local port_args=()
+    if [ -n "${PORT:-}" ]; then
+        port_args=(--port "$PORT")
+    fi
+
+    echo "Erasing otadata (${_OTADATA_ADDR} len ${_OTADATA_LEN}) so the next boot uses the firmware just written to ota_0 (dual-slot OTA layout)."
+    set +e
+    python3 "$esptool_py" --chip esp32 "${port_args[@]}" --baud "$baud" \
+        --before default_reset --after hard_reset \
+        erase_region "${_OTADATA_ADDR}" "${_OTADATA_LEN}"
+    local rc=$?
+    set -e
+    if [ "$rc" -ne 0 ]; then
+        echo "Warning: otadata erase_region returned exit code $rc" >&2
+    fi
+}
+
+run_upload() {
+    local upload_args=()
+    if [ -n "${PORT:-}" ]; then
+        upload_args=(--upload-port "$PORT")
+    fi
+    pio run -e "$ENV_NAME" -t upload "${upload_args[@]}"
+    erase_otadata_usb
+}
+
+run_uploadfs() {
+    run_ui_build
+    pio run -e "$ENV_NAME" -t uploadfs
+}
+
+run_flash() {
+    run_upload
+    run_uploadfs
+}
+
+run_monitor() {
+    if [ -n "$PORT" ]; then
+        pio device monitor -e "$ENV_NAME" -b "$BAUD" --filter direct --encoding ascii --rts 0 --dtr 0 --port "$PORT"
+    else
+        pio device monitor -e "$ENV_NAME" -b "$BAUD" --filter direct --encoding ascii --rts 0 --dtr 0
+    fi
+}
+
+run_start() {
+    # Backward-compatible behavior: flash code + filesystem, then monitor.
+    run_flash
+    run_monitor
+}
+
+run_fs_upload() {
+    # Backward-compatible behavior: upload filesystem, then monitor.
+    run_uploadfs
+    run_monitor
+}
+
+run_clean() {
+    pio run -e "$ENV_NAME" -t clean
+}
+
+run_test() {
+    pio test --environment native
+}
+
+# OTA over HTTPS: login with TOTP then upload firmware (same flow as /api/firmware/ota).
+run_ota() {
+    local base_url="${OTA_URL:-}"
+    local host="${OTA_HOST:-${PHONE_FILTER_HOST:-}}"
+    if [ -z "$base_url" ]; then
+        if [ -z "$host" ]; then
+            echo "Set OTA_URL (e.g. https://192.168.1.5) or OTA_HOST / PHONE_FILTER_HOST in .env or environment." >&2
+            exit 1
+        fi
+        base_url="https://${host}"
+    fi
+    base_url="${base_url%/}"
+
+    local fw=".pio/build/${ENV_NAME}/firmware.bin"
+    if [ "${OTA_SKIP_BUILD:-0}" != "1" ]; then
+        run_build
+    fi
+    if [ ! -f "$fw" ]; then
+        echo "Missing $fw — run build first." >&2
+        exit 1
+    fi
+
+    local curl_tls=()
+    if [ "${OTA_INSECURE:-1}" != "0" ]; then
+        curl_tls=(-k)
+    fi
+
+    local totp
+    read -r -p "TOTP (6 digits, used for login and OTA): " totp
+    echo
+    totp="${totp//[^0-9]/}"
+    if ! [[ "$totp" =~ ^[0-9]{6}$ ]]; then
+        echo "Expected exactly 6 digits." >&2
+        exit 1
+    fi
+
+    echo "Logging in…"
+    local login_json
+    login_json="$(curl "${curl_tls[@]}" -sS -X POST "${base_url}/api/auth/login" \
+        -H "Content-Type: application/json" \
+        --data "{\"totp\":\"${totp}\"}")" || {
+        echo "Login request failed (network?)." >&2
+        exit 1
+    }
+
+    local session_token
+    session_token=""
+    if command -v jq >/dev/null 2>&1; then
+        session_token="$(printf '%s' "$login_json" | jq -r '.session_token // empty' 2>/dev/null || true)"
+    elif command -v python3 >/dev/null 2>&1; then
+        session_token="$(python3 -c "import json,sys
+try:
+    d=json.loads(sys.argv[1])
+    print(d.get(\"session_token\") or \"\")
+except Exception:
+    print(\"\")
+" "$login_json")"
+    else
+        echo "Login JSON parsing needs \`jq\` or \`python3\` on PATH." >&2
+        exit 1
+    fi
+    if [ -z "$session_token" ]; then
+        local err="login failed"
+        if command -v jq >/dev/null 2>&1; then
+            err="$(printf '%s' "$login_json" | jq -r '.error // empty' 2>/dev/null || true)"
+            [ -z "$err" ] && err="login failed"
+        elif command -v python3 >/dev/null 2>&1; then
+            err="$(python3 -c "import json,sys
+try:
+    d=json.loads(sys.argv[1])
+    print(d.get(\"error\") or \"login failed\")
+except Exception:
+    print(\"invalid JSON response\")
+" "$login_json" 2>/dev/null || echo "invalid response")"
+        fi
+        echo "Login failed: $err" >&2
+        exit 1
+    fi
+
+    echo "Uploading firmware ($(wc -c < "$fw" | tr -d ' ') bytes)…"
+    set +e
+    curl "${curl_tls[@]}" -sS -X POST "${base_url}/api/firmware/ota" \
+        -H "X-Session-Token: ${session_token}" \
+        -H "X-TOTP: ${totp}" \
+        -H "Content-Type: application/octet-stream" \
+        --data-binary @"${fw}"
+    local ec=$?
+    set -e
+    if [ "$ec" -ne 0 ]; then
+        echo >&2
+        echo "curl exited $ec — if the device rebooted mid-response, the update may still have succeeded. Wait and check serial / web UI." >&2
+        exit "$ec"
+    fi
+    echo
+    echo "OTA finished (HTTP OK). Device should restart shortly."
+}
+
+usage() {
+    cat <<EOF
+Usage: $0 <command> [options]
+
+Commands:
+  start       Upload firmware + filesystem, then open monitor
+  flash       Upload firmware + filesystem
+  build       Compile project
+  upload      Upload firmware only
+  uploadfs    Upload filesystem only
+  monitor     Open serial monitor
+  clean       Clean build artifacts
+  test        Run native tests
+  ota         Build (optional skip), prompt for TOTP, push firmware.bin over HTTPS OTA
+
+Compatibility aliases:
+  fs_upload   Same as: uploadfs + monitor
+
+Notes:
+  - **UI CSS:** Before \`uploadfs\`, \`flash\`, or \`start\`, if \`package.json\` exists and \`npm\` is on PATH, the script runs \`npm install\` (if needed) and \`npm run build:css\` (Tailwind → \`data/static/css/tw.min.css\`). Set \`SKIP_UI_BUILD=1\` to skip. Without npm, the last committed \`tw.min.css\` is uploaded as-is.
+  - Wi-Fi credentials live in LittleFS \`config.json\`; \`WIFI_SSID\` / \`WIFI_PASSWORD\` in .env are **not** used by \`pio run\`.
+  - USB \`upload\` / \`start\` / \`flash\` use the **current** \`.pio/build/<env>/firmware.bin\` (PlatformIO rebuilds when sources change). With **dual OTA** (\`partitions_ota.csv\`), after an **OTA** the chip may still boot the **old slot** until \`otadata\` is cleared: **\`./stack\`** runs an **esptool erase** of \`otadata\` after \`pio upload\` so the next boot uses ota_0. Plain \`pio run -t upload\` does **not** do this — use \`./stack upload\` / \`flash\` / \`start\`, or erase manually. Skip with \`SKIP_ERASE_OTADATA=1\`. Baud override: \`ERASE_OTADATA_BAUD\` (default 460800).
+  - OTA from the host: \`$0 ota\` (needs curl + python3). Set \`OTA_URL=https://<device-ip>\` or
+    \`OTA_HOST=<device-ip>\` in .env. Self-signed HTTPS: default curl -k (\`OTA_INSECURE=0\` to require
+    valid TLS). Skip compile: \`--no-build\` or \`OTA_SKIP_BUILD=1\`.
+  - OTA from the browser: Settings → Firmware (OTA).
+
+Options:
+  -e, --env <name>      PlatformIO environment (default: esp32dev)
+  -b, --baud <baud>     Serial baudrate for monitor (default: 115200)
+  -p, --port <port>     Explicit serial port (optional)
+  --no-build            With \`ota\`: do not run \`pio run\` before upload (reuse existing firmware.bin)
+  -h, --help            Show this help
+EOF
+}
+
+if [ "$#" -eq 0 ]; then
+    usage
+    exit 1
+fi
+
+COMMAND="$1"
+shift
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -e|--env)
+            ENV_NAME="${2:-}"
+            shift 2
+            ;;
+        -b|--baud)
+            BAUD="${2:-}"
+            shift 2
+            ;;
+        -p|--port)
+            PORT="${2:-}"
+            shift 2
+            ;;
+        --no-build)
+            OTA_SKIP_BUILD=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+: "${ENV_NAME:=esp32dev}"
+: "${BAUD:=115200}"
+
+case "$COMMAND" in
+    start)
+        run_start
+        ;;
+    flash)
+        run_flash
+        ;;
+    build)
+        run_build
+        ;;
+    upload)
+        run_upload
+        ;;
+    uploadfs)
+        run_uploadfs
+        ;;
+    monitor)
+        run_monitor
+        ;;
+    clean)
+        run_clean
+        ;;
+    test)
+        run_test
+        ;;
+    ota)
+        run_ota
+        ;;
+    fs_upload)
+        run_fs_upload
+        ;;
+    help)
+        usage
+        ;;
+    *)
+        echo "Unknown command: $COMMAND"
+        echo
+        usage
+        exit 1
+        ;;
+esac

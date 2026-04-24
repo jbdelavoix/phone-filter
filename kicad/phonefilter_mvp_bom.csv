@@ -1,0 +1,19 @@
+Ref,Qty,Value,Part,Notes
+U1,1,ESP32 Dev Board,MCU module,3.3V logic
+BR1,1,MB10M,Bridge rectifier DIP-4,Ring input polarity-insensitive
+U2,1,PC817,Optocoupler,Ring detect isolation
+U3,1,PC817,Optocoupler,Pulse input isolation
+K1,1,Relay module 5/12/24V,Relay module,Control side IN/GND/VCC + COM/NO/NC
+J1,1,2-pin terminal,Connector,LINE_A/LINE_B
+J2,1,2-pin terminal,Connector,PULSE_A/PULSE_B
+J3,1,2-pin terminal,Connector,DTMF_LOW_IN/DTMF_HIGH_IN
+R1,1,22k..47k,Resistor,Ring LED current limiting (tune by source)
+R2,1,10k,Resistor,Pull-up INCOMING_RING_IN to +3V3
+R3,1,10k,Resistor,Pull-up OUTGOING_PULSE_IN to +3V3
+R4,1,330R,Resistor,Series on GPIO14 PWM
+R5,1,330R,Resistor,Series on GPIO12 PWM
+R6,1,1k..10k,Resistor,Pulse input side limiter
+C1,1,100nF,Capacitor,Optional filter on INCOMING_RING_IN
+C2,1,100nF,Capacitor,Optional filter on OUTGOING_PULSE_IN
+C3,1,100nF,Capacitor,Local decoupling near interfaces
+C4,1,22uF,Capacitor,Bulk capacitor on +3V3 rail

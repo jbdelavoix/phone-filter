@@ -1,0 +1,9 @@
+# 4 MB flash: dual OTA (~1.31 MiB each) + data partition for LittleFS (see board_build.filesystem).
+# If you change otadata offset/size, update the matching erase in ./stack (erase_otadata_usb).
+# Name,   Type, SubType, Offset,  Size, Flags
+nvs,      data, nvs,     0x9000,  0x4000,
+otadata,  data, ota,     0xd000,  0x2000,
+phy_init, data, phy,     0xf000,  0x1000,
+ota_0,    app,  ota_0,   0x10000, 0x150000,
+ota_1,    app,  ota_1,   ,        0x150000,
+spiffs,   data, spiffs,  ,        0x150000,

@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>Phone Filter</title>
+<link rel="stylesheet" href="/static/css/tw.min.css">
+<link rel="stylesheet" href="/static/css/font-awesome.min.css">
+<script src="/static/js/qrcode.min.js"></script>
+<style>
+  html {
+    color-scheme: light dark;
+  }
+  .app-shell {
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+    min-height: 100vh;
+  }
+  .glass-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    .app-shell {
+      background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 55%, #0f172a 100%);
+    }
+    .glass-card {
+      background: rgba(30, 41, 59, 0.94);
+      border-color: #475569;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    }
+  }
+  .tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-weight: 600;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .tab-icon {
+    font-size: 0.9rem;
+    line-height: 1;
+    width: 1rem;
+    text-align: center;
+  }
+  .section-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+  .modern-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+</style>
+</head>
+<body class="app-shell text-slate-900 dark:text-slate-100 p-4">
+
+<div id="authCard" class="max-w-md mx-auto rounded-xl glass-card p-6 sm:p-8">
+  <h1 class="section-title text-2xl font-bold mb-2"><i class="fa-solid fa-shield-halved text-indigo-600 dark:text-indigo-400"></i><span>Phone Filter Login</span></h1>
+  <p class="text-sm text-slate-600 dark:text-slate-400 mb-4">Use your TOTP once. Then the session stays authenticated.</p>
+  <div id="setupApAuthHint" class="hidden mb-3 rounded-md border border-amber-200 dark:border-amber-700/80 bg-amber-50 dark:bg-amber-950/45 px-3 py-2 text-xs text-amber-950 dark:text-amber-100 space-y-1">
+    <p><strong>Hotspot setup.</strong> Wi‑Fi only — no TOTP on this network. Save credentials, then use the device on your LAN and log in with TOTP.</p>
+  </div>
+  <div class="flex gap-2">
+    <input id="totpInput" maxlength="6" class="flex-1 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-600" placeholder="123456">
+    <button id="loginBtn" class="modern-btn bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"><i class="fa-solid fa-right-to-bracket"></i><span>Login</span></button>
+  </div>
+  <p id="authError" class="hidden mt-3 text-sm text-red-700 dark:text-red-300"></p>
+  <div id="authBootstrapBox" class="hidden mt-4 border border-indigo-200 dark:border-indigo-600/60 bg-indigo-50 dark:bg-indigo-950/40 rounded-md p-4">
+    <p class="text-sm text-indigo-900 dark:text-indigo-100 mb-3">No TOTP token exists yet. Scan this bootstrap QR code now to create your first token.</p>
+    <div id="authBootstrapQr" class="w-56 h-56 bg-white dark:bg-slate-900 p-2 border border-indigo-200 dark:border-indigo-600/50 rounded-md mx-auto"></div>
+  </div>
+  <p id="authDate" class="mt-4 text-xs text-slate-500 dark:text-slate-400 text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400" title="Click to sync time">Date: -</p>
+</div>
+
+<div id="appCard" class="hidden max-w-5xl mx-auto rounded-xl glass-card p-6 sm:p-8">
+  <div class="flex items-center justify-between gap-4 mb-6">
+    <h1 class="section-title text-2xl sm:text-3xl font-bold tracking-tight"><i class="fa-solid fa-phone-volume text-indigo-600 dark:text-indigo-400"></i><span>Phone Filter</span></h1>
+    <div class="flex items-center gap-2">
+      <button id="logoutBtn" class="modern-btn bg-slate-800 text-white px-3 py-2 rounded-md hover:bg-slate-900"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></button>
+    </div>
+  </div>
+
+  <div id="notice" class="hidden mb-4 rounded-md px-3 py-2 text-sm flex items-start justify-between gap-3">
+    <span id="noticeText" class="flex-1 min-w-0 break-words"></span>
+    <button type="button" id="noticeDismiss" class="shrink-0 -mr-1 -mt-0.5 rounded-md px-2 py-1 text-slate-600 hover:bg-black/10 dark:text-slate-300 dark:hover:bg-white/10" title="Close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <div id="setupApAppHint" class="hidden mb-4 rounded-md border border-sky-200 dark:border-sky-800/80 bg-sky-50 dark:bg-sky-950/40 px-3 py-2 text-sm text-sky-950 dark:text-sky-100">
+    <p><strong>Setup hotspot.</strong> Enter your Wi‑Fi credentials below and save — the device reboots and joins your network. After that, open it on your LAN and log in with TOTP for the full console.</p>
+  </div>
+
+  <div id="mainTabBar" class="mb-6 flex gap-2 overflow-x-auto pb-1">
+    <button id="tabRecentCalls" class="tab-btn px-4 py-2 rounded-md bg-slate-800 text-white dark:bg-indigo-600"><i class="tab-icon fa-solid fa-clock-rotate-left"></i>Recent Calls</button>
+    <button id="tabIncoming" class="tab-btn px-4 py-2 rounded-md bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"><i class="tab-icon fa-solid fa-arrow-down"></i>Incoming</button>
+    <button id="tabOutgoing" class="tab-btn px-4 py-2 rounded-md bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"><i class="tab-icon fa-solid fa-arrow-up"></i>Outgoing</button>
+    <button id="tabSettings" class="tab-btn px-4 py-2 rounded-md bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"><i class="tab-icon fa-solid fa-gear"></i>Settings</button>
+    <button id="tabAudit" class="tab-btn px-4 py-2 rounded-md bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"><i class="tab-icon fa-solid fa-file-lines"></i>Audit</button>
+  </div>
+
+  <section id="panelRecentCalls" class="tab-panel space-y-6">
+    <div class="border border-slate-200 dark:border-slate-600 rounded-lg p-4 bg-gradient-to-br from-slate-50 to-indigo-50/40 dark:from-slate-900/80 dark:to-indigo-950/30">
+      <h2 class="section-title text-lg font-semibold mb-1"><i class="fa-solid fa-phone text-indigo-500 dark:text-indigo-400"></i><span>Recent Calls</span></h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Last received or dialed numbers from audit history.</p>
+      <ul id="recentCallsList" class="space-y-2"></ul>
+      <p id="recentCallsEmpty" class="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-400">No recent number yet.</p>
+    </div>
+  </section>
+
+  <section id="panelIncoming" class="tab-panel hidden space-y-6">
+    <details class="border border-slate-200 dark:border-slate-600 rounded-lg p-4 bg-slate-50 dark:bg-slate-900/40">
+      <summary class="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-200">Help and example</summary>
+      <div class="mt-3 text-xs text-slate-600 dark:text-slate-400 space-y-1">
+        <p>Use blacklist to block broad ranges, then whitelist to keep trusted exceptions.</p>
+        <p>Tip: you can use <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">*</code> in incoming blacklist to block all incoming calls first, then re-allow only trusted prefixes in incoming whitelist.</p>
+        <p>Example: blacklist <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">+2</code>, <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">+4</code>; whitelist <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">+212</code>, <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">+442026</code>.</p>
+        <p>So <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">+212...</code> and <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">+442026...</code> pass, while <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">+4930...</code> is blocked.</p>
+      </div>
+    </details>
+
+    <div class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <h2 class="section-title text-lg font-semibold mb-3"><i class="fa-solid fa-ban text-red-500 dark:text-red-400"></i><span>Incoming Blacklist</span></h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Block broad prefixes here.</p>
+      <div class="flex mb-4">
+        <input id="blacklistNumInput" class="flex-1 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-l-md" placeholder="Number">
+        <button id="addBlacklistBtn" class="modern-btn bg-emerald-600 text-white px-4 py-2 rounded-r-md hover:bg-emerald-700"><i class="fa-solid fa-plus"></i><span>Add</span></button>
+      </div>
+      <ul id="blacklistList" class="space-y-2"></ul>
+      <p id="blacklistEmpty" class="text-sm text-slate-500 dark:text-slate-400">No number in blacklist.</p>
+    </div>
+
+    <div class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <h2 class="section-title text-lg font-semibold mb-3"><i class="fa-solid fa-circle-check text-emerald-600 dark:text-emerald-400"></i><span>Incoming Whitelist</span></h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Allow narrow exceptions inside blocked ranges.</p>
+      <div class="flex mb-4">
+        <input id="whitelistNumInput" class="flex-1 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-l-md" placeholder="Number">
+        <button id="addWhitelistBtn" class="modern-btn bg-emerald-600 text-white px-4 py-2 rounded-r-md hover:bg-emerald-700"><i class="fa-solid fa-plus"></i><span>Add</span></button>
+      </div>
+      <ul id="whitelistList" class="space-y-2"></ul>
+      <p id="whitelistEmpty" class="text-sm text-slate-500 dark:text-slate-400">No number in whitelist.</p>
+    </div>
+  </section>
+
+  <section id="panelOutgoing" class="tab-panel hidden space-y-6">
+    <details class="border border-slate-200 dark:border-slate-600 rounded-lg p-4 bg-slate-50 dark:bg-slate-900/40">
+      <summary class="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-200">Help and example</summary>
+      <div class="mt-3 text-xs text-slate-600 dark:text-slate-400 space-y-1">
+        <p>Use blacklist to block broad ranges, then whitelist to keep trusted exceptions.</p>
+        <p>Tip: with outgoing blacklist <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">*</code>, everything is blocked first; outgoing whitelist then re-allows only selected ranges (for example <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">+33</code>, <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">+442026</code>).</p>
+        <p>Shortcuts are just helpers: <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">1 -&gt; +33123456789</code>, <code class="bg-slate-200/70 dark:bg-slate-800 px-1 rounded">2 -&gt; +442026123456</code>.</p>
+      </div>
+    </details>
+
+    <div class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <h2 class="section-title text-lg font-semibold mb-3"><i class="fa-solid fa-ban text-red-500 dark:text-red-400"></i><span>Outgoing Blacklist</span></h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Block broad outgoing ranges here.</p>
+      <div class="flex mb-4">
+        <input id="outgoingBlacklistInput" class="flex-1 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-l-md" placeholder="Prefix">
+        <button id="addOutgoingBlacklistBtn" class="modern-btn bg-emerald-600 text-white px-4 py-2 rounded-r-md hover:bg-emerald-700"><i class="fa-solid fa-plus"></i><span>Add</span></button>
+      </div>
+      <ul id="outgoingBlacklistList" class="space-y-2"></ul>
+      <p id="outgoingBlacklistEmpty" class="text-sm text-slate-500 dark:text-slate-400">No prefix in outgoing blacklist.</p>
+    </div>
+
+    <div class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <h2 class="section-title text-lg font-semibold mb-3"><i class="fa-solid fa-route text-blue-600 dark:text-blue-400"></i><span>Outgoing Whitelist</span></h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Allow narrow exceptions inside blocked ranges.</p>
+      <div class="flex mb-4">
+        <input id="allowedPrefixInput" class="flex-1 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-l-md" placeholder="Prefix">
+        <button id="addAllowedPrefixBtn" class="modern-btn bg-emerald-600 text-white px-4 py-2 rounded-r-md hover:bg-emerald-700"><i class="fa-solid fa-plus"></i><span>Add</span></button>
+      </div>
+      <ul id="allowedPrefixList" class="space-y-2"></ul>
+    </div>
+
+    <div class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <h2 class="section-title text-lg font-semibold mb-3"><i class="fa-solid fa-wand-magic-sparkles text-fuchsia-600 dark:text-fuchsia-400"></i><span>Outgoing Shortcuts</span></h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Shortcuts expand dialed input to a full number, then filtering still applies.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+        <input id="shortcutTriggerInput" class="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-md" placeholder="Trigger">
+        <input id="shortcutReplacementInput" class="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-md" placeholder="Replacement">
+        <button id="addShortcutBtn" class="modern-btn bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700"><i class="fa-solid fa-plus"></i><span>Add shortcut</span></button>
+      </div>
+      <ul id="shortcutList" class="space-y-2"></ul>
+    </div>
+  </section>
+
+  <section id="panelSettings" class="tab-panel hidden space-y-6">
+    <div id="settingsSectionTime" class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <h2 class="section-title text-lg font-semibold"><i class="fa-solid fa-clock text-indigo-500 dark:text-indigo-400"></i><span>Device Time</span></h2>
+        <button id="syncTimeBtn" class="modern-btn bg-indigo-600 text-white px-3 py-2 rounded-md hover:bg-indigo-700"><i class="fa-solid fa-arrows-rotate"></i><span>Sync NTP</span></button>
+      </div>
+      <p id="timeIso" class="text-sm text-slate-700 dark:text-slate-300">Time: -</p>
+      <p id="timeEpoch" class="text-sm text-slate-500 dark:text-slate-400">Epoch: -</p>
+      <p id="timeSynced" class="text-sm text-slate-500 dark:text-slate-400">Synced: -</p>
+    </div>
+
+    <div id="settingsSectionWifi" class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <h2 class="section-title text-lg font-semibold mb-2"><i class="fa-solid fa-wifi text-sky-600 dark:text-sky-400"></i><span>Wi-Fi</span></h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Your network name and password are saved on the device together with your other settings. After you save, the device restarts and reconnects using the new Wi‑Fi.</p>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="wifiSsidInput">SSID</label>
+      <input id="wifiSsidInput" class="w-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-md mb-3" placeholder="Network name" autocomplete="off">
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="wifiPasswordInput">Password</label>
+      <input id="wifiPasswordInput" type="password" class="w-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-md mb-2" placeholder="Wi-Fi password" autocomplete="off">
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">WPA2: use the network passphrase. Leave empty only for an unencrypted (open) access point.</p>
+      <button id="saveWifiBtn" type="button" class="modern-btn bg-sky-600 text-white px-4 py-2 rounded-md hover:bg-sky-700">
+        <i class="fa-solid fa-floppy-disk"></i><span>Save Wi-Fi</span>
+      </button>
+    </div>
+
+    <div id="settingsSectionTotp" class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <h2 class="section-title text-lg font-semibold mb-3"><i class="fa-solid fa-key text-amber-500 dark:text-amber-400"></i><span>TOTP Secrets</span></h2>
+      <div class="mb-4">
+        <button id="newTotpTokenBtn" class="modern-btn bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700"><i class="fa-solid fa-plus"></i><span>New TOTP token</span></button>
+      </div>
+      <ul id="totpSecretList" class="space-y-2"></ul>
+      <p id="totpSecretEmpty" class="text-sm text-slate-500 dark:text-slate-400">No configured TOTP secret.</p>
+      <div id="totpQrBox" class="hidden mt-4 border border-indigo-200 dark:border-indigo-700/60 bg-indigo-50 dark:bg-indigo-950/40 rounded-md p-4">
+        <p id="totpQrMessage" class="text-sm text-indigo-900 dark:text-indigo-100 mb-3"></p>
+        <div id="totpQrImage" class="w-56 h-56 bg-white dark:bg-slate-900 p-2 border border-indigo-200 dark:border-indigo-700/50 rounded-md"></div>
+      </div>
+    </div>
+
+    <div id="settingsSectionHttps" class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <h2 class="section-title text-lg font-semibold mb-3"><i class="fa-solid fa-lock text-emerald-600 dark:text-emerald-400"></i><span>HTTPS / TLS</span></h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">HTTPS is always enabled. A default self-signed certificate is preloaded; you can replace it here.</p>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="httpsCertInput">Certificate (PEM)</label>
+      <textarea id="httpsCertInput" rows="8" class="w-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-md font-mono text-xs mb-3"></textarea>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="httpsKeyInput">Private key (PEM)</label>
+      <textarea id="httpsKeyInput" rows="8" class="w-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-md font-mono text-xs mb-3"></textarea>
+      <button id="saveHttpsConfigBtn" class="modern-btn bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700">
+        <i class="fa-solid fa-floppy-disk"></i><span>Save HTTPS config</span>
+      </button>
+    </div>
+
+    <div id="settingsSectionOta" class="border border-amber-400/80 dark:border-amber-700/60 rounded-lg p-4 bg-amber-50/80 dark:bg-amber-950/35">
+      <h2 class="section-title text-lg font-semibold mb-2"><i class="fa-solid fa-microchip text-amber-700 dark:text-amber-400"></i><span>Firmware (OTA)</span></h2>
+      <p class="text-xs text-amber-950/90 dark:text-amber-100/90 mb-3">
+        Upload a <code class="bg-white/80 dark:bg-slate-800/90 px-1 rounded">firmware.bin</code> from <code class="bg-white/80 dark:bg-slate-800/90 px-1 rounded">pio run -e esp32dev</code> (same partition scheme as this device).
+        You need a fresh <strong>6-digit TOTP</strong> in addition to your session. Do not power off during flash; a bad image may require USB recovery.
+      </p>
+      <div class="flex flex-col sm:flex-row sm:items-end gap-3 mb-3">
+        <div class="flex-1">
+          <label class="block text-sm font-medium text-slate-800 dark:text-slate-200 mb-1" for="otaFileInput">Firmware file (.bin)</label>
+          <input id="otaFileInput" type="file" accept=".bin,application/octet-stream"
+            class="block w-full text-sm text-slate-700 dark:text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:bg-amber-700 file:text-white file:hover:bg-amber-800">
+        </div>
+        <div class="w-full sm:w-36">
+          <label class="block text-sm font-medium text-slate-800 dark:text-slate-200 mb-1" for="otaTotpInput">TOTP now</label>
+          <input id="otaTotpInput" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"
+            class="w-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-400 dark:focus:ring-amber-600">
+        </div>
+        <button id="otaUploadBtn" type="button" class="modern-btn bg-amber-700 text-white px-4 py-2 rounded-md hover:bg-amber-800 whitespace-nowrap">
+          <i class="fa-solid fa-cloud-arrow-up"></i><span>Install OTA</span>
+        </button>
+      </div>
+      <p id="otaHint" class="text-xs text-slate-600 dark:text-slate-400">If the page stops responding after upload, wait for reboot then reload.</p>
+    </div>
+  </section>
+
+  <section id="panelAudit" class="tab-panel hidden space-y-6">
+    <div class="border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <h2 class="section-title text-lg font-semibold"><i class="fa-solid fa-clipboard-list text-slate-600 dark:text-slate-400"></i><span>Audit Logs</span></h2>
+        <button id="refreshAuditBtn" class="modern-btn bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-slate-100 px-3 py-2 rounded-md hover:bg-slate-300 dark:hover:bg-slate-500">
+          <i class="fa-solid fa-rotate-right"></i><span>Refresh</span>
+        </button>
+      </div>
+      <ul id="auditList" class="space-y-2"></ul>
+      <p id="auditEmpty" class="text-sm text-slate-500 dark:text-slate-400">No audit event yet.</p>
+    </div>
+  </section>
+
+  <p id="appDate" class="mt-4 text-xs text-slate-500 dark:text-slate-400 text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400" title="Click to sync time">Date: -</p>
+</div>
+
+<script>
+const authCard = document.getElementById('authCard');
+const appCard = document.getElementById('appCard');
+const authError = document.getElementById('authError');
+const authDateEl = document.getElementById('authDate');
+const authBootstrapBox = document.getElementById('authBootstrapBox');
+const authBootstrapQr = document.getElementById('authBootstrapQr');
+const appDateEl = document.getElementById('appDate');
+const totpInput = document.getElementById('totpInput');
+const notice = document.getElementById('notice');
+const noticeText = document.getElementById('noticeText');
+document.getElementById('noticeDismiss').onclick = dismissNotice;
+const tabs = ['RecentCalls', 'Incoming', 'Outgoing', 'Settings', 'Audit'];
+let isAuthenticated = false;
+let sessionToken = '';
+let currentTab = 'RecentCalls';
+let setupApMode = false;
+const tabCache = {
+  RecentCalls: false,
+  Incoming: false,
+  Outgoing: false,
+  Settings: false,
+  Audit: false
+};
+
+function clearQr(targetEl) {
+  if (!targetEl) return;
+  targetEl.innerHTML = '';
+}
+
+function prefersDarkScheme() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+function renderQr(targetEl, text) {
+  clearQr(targetEl);
+  if (!targetEl || !text || typeof QRCode === 'undefined') return;
+  const dark = prefersDarkScheme();
+  new QRCode(targetEl, {
+    text,
+    width: 224,
+    height: 224,
+    colorDark: dark ? '#f1f5f9' : '#0f172a',
+    colorLight: dark ? '#1e293b' : '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M
+  });
+}
+
+function applyWifiPortalChrome() {
+  const tabBar = document.getElementById('mainTabBar');
+  const wifiOnly = setupApMode && !isAuthenticated;
+  if (tabBar) tabBar.classList.toggle('hidden', wifiOnly);
+  ['settingsSectionTime', 'settingsSectionTotp', 'settingsSectionHttps', 'settingsSectionOta'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', wifiOnly);
+  });
+  if (appDateEl) appDateEl.classList.toggle('hidden', wifiOnly);
+}
+
+function updateShellVisibility() {
+  const show = isAuthenticated || setupApMode;
+  authCard.style.display = show ? 'none' : 'block';
+  appCard.style.display = show ? 'block' : 'none';
+  if (isAuthenticated) {
+    authBootstrapBox.classList.add('hidden');
+    clearQr(authBootstrapQr);
+  } else {
+    Object.keys(tabCache).forEach((key) => { tabCache[key] = false; });
+  }
+  applyWifiPortalChrome();
+  updateSetupApHints();
+}
+
+function setAuthenticated(value) {
+  isAuthenticated = value;
+  updateShellVisibility();
+}
+
+async function refreshSetupApMode() {
+  try {
+    const stRes = await fetch('/api/setup/status');
+    const st = await stRes.json();
+    setupApMode = !!(st && st.setup_ap);
+    updateSetupApHints();
+  } catch (_) {
+    setupApMode = false;
+    updateSetupApHints();
+  }
+}
+
+function updateSetupApHints() {
+  const authHint = document.getElementById('setupApAuthHint');
+  const appHint = document.getElementById('setupApAppHint');
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (authHint) authHint.classList.toggle('hidden', !setupApMode);
+  if (appHint) appHint.classList.toggle('hidden', !setupApMode);
+  if (logoutBtn) logoutBtn.classList.toggle('hidden', !!setupApMode && !isAuthenticated);
+}
+
+async function selectTab(name) {
+  if (setupApMode && !isAuthenticated && name !== 'Settings') name = 'Settings';
+  currentTab = name;
+  tabs.forEach((tab) => {
+    const active = tab === name;
+    document.getElementById(`tab${tab}`).className = active
+      ? 'tab-btn px-4 py-2 rounded-md bg-slate-800 text-white dark:bg-indigo-600 dark:text-white'
+      : 'tab-btn px-4 py-2 rounded-md bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200';
+    document.getElementById(`panel${tab}`).style.display = active ? 'block' : 'none';
+  });
+  const canLoad = isAuthenticated || (setupApMode && name === 'Settings');
+  if (canLoad) {
+    await loadTabData(name);
+  }
+}
+
+let uiRequestChain = Promise.resolve();
+function enqueueUi(fn) {
+  const run = uiRequestChain.then(async () => {
+    try {
+      return await fn();
+    } catch (e) {
+      showNotice(e.message, 'error');
+    }
+  });
+  uiRequestChain = run;
+  return run;
+}
+
+function queueSelectTab(name) {
+  enqueueUi(() => selectTab(name));
+}
+
+function invalidateTabCache(...tabsToInvalidate) {
+  tabsToInvalidate.forEach((tab) => {
+    if (tab in tabCache) tabCache[tab] = false;
+  });
+}
+
+async function loadTabData(tabName, force = false) {
+  const allowWifiOnlySettings = setupApMode && !isAuthenticated && tabName === 'Settings';
+  if (!isAuthenticated && !allowWifiOnlySettings) return;
+  if (!force && tabCache[tabName]) return;
+  if (tabName === 'Incoming') {
+    await loadIncomingLists();
+    tabCache.Incoming = true;
+    return;
+  }
+  if (tabName === 'Outgoing') {
+    await loadOutgoing();
+    tabCache.Outgoing = true;
+    return;
+  }
+  if (tabName === 'Settings') {
+    await loadSettings();
+    tabCache.Settings = true;
+    return;
+  }
+  if (tabName === 'Audit') {
+    await loadAuditLogs();
+    tabCache.Audit = true;
+    tabCache.RecentCalls = true;
+    return;
+  }
+  if (tabName === 'RecentCalls') {
+    await loadAuditLogs();
+    tabCache.RecentCalls = true;
+    tabCache.Audit = true;
+  }
+}
+
+function updateFooterDateFromIso(iso) {
+  const text = `Date: ${iso || '-'}`;
+  authDateEl.textContent = text;
+  appDateEl.textContent = text;
+}
+
+function dismissNotice() {
+  noticeText.textContent = '';
+  notice.classList.add('hidden');
+}
+
+function showNotice(message, type) {
+  noticeText.textContent = message;
+  notice.classList.remove('hidden');
+  notice.className = 'mb-4 rounded-md px-3 py-2 text-sm flex items-start justify-between gap-3';
+  if (type === 'error') {
+    notice.classList.add('bg-red-100', 'text-red-800', 'dark:bg-red-950/55', 'dark:text-red-200');
+  } else if (type === 'success') {
+    notice.classList.add('bg-emerald-100', 'text-emerald-800', 'dark:bg-emerald-950/45', 'dark:text-emerald-200');
+  } else {
+    notice.classList.add('bg-slate-100', 'text-slate-700', 'dark:bg-slate-800', 'dark:text-slate-200');
+  }
+}
+
+async function api(path, options) {
+  const requestOptions = options ? { ...options } : {};
+  const headers = { ...(requestOptions.headers || {}) };
+  if (sessionToken) headers['X-Session-Token'] = sessionToken;
+  requestOptions.headers = headers;
+  const res = await fetch(path, requestOptions);
+  if (res.status === 401 && path !== '/api/auth/login') {
+    if (!setupApMode) {
+      setAuthenticated(false);
+      sessionToken = '';
+    }
+    throw new Error('unauthorized');
+  }
+  if (!res.ok) {
+    let message = `Request failed (${res.status}) for ${path}`;
+    try {
+      const data = await res.json();
+      if (data.error) message = `${data.error} (${path})`;
+    } catch (_) {}
+    throw new Error(message);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+function renderNumberList(targetListEl, targetEmptyEl, entries, removeEndpoint) {
+  targetListEl.innerHTML = '';
+  targetEmptyEl.style.display = entries.length ? 'none' : 'block';
+  entries.forEach((n) => {
+    const li = document.createElement('li');
+    li.className = 'flex justify-between items-center bg-slate-50 dark:bg-slate-800/70 p-2 rounded-md border border-slate-200 dark:border-slate-600';
+    li.innerHTML = `<span class="text-slate-800 dark:text-slate-200">${n}</span>`;
+    const btn = document.createElement('button');
+    btn.innerHTML = '<i class="fa-solid fa-trash-can"></i><span>Remove</span>';
+    btn.className = 'modern-btn bg-red-600 text-white text-sm px-2 py-1 rounded hover:bg-red-700';
+    btn.onclick = async () => {
+      await api(removeEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: n })
+      });
+      invalidateTabCache('Incoming');
+      await loadIncomingLists();
+      tabCache.Incoming = true;
+    };
+    li.appendChild(btn);
+    targetListEl.appendChild(li);
+  });
+}
+
+async function loadIncomingLists() {
+  const blacklist = await api('/api/incoming/blacklist');
+  const whitelist = await api('/api/incoming/whitelist');
+  renderNumberList(
+    document.getElementById('blacklistList'),
+    document.getElementById('blacklistEmpty'),
+    Array.isArray(blacklist) ? blacklist : [],
+    '/api/incoming/blacklist/remove'
+  );
+  renderNumberList(
+    document.getElementById('whitelistList'),
+    document.getElementById('whitelistEmpty'),
+    Array.isArray(whitelist) ? whitelist : [],
+    '/api/incoming/whitelist/remove'
+  );
+}
+
+function renderPrefixList(prefixes, targetId, removeEndpoint) {
+  const target = document.getElementById(targetId);
+  target.innerHTML = '';
+  prefixes.forEach((p) => {
+    const li = document.createElement('li');
+    li.className = 'flex justify-between items-center bg-slate-50 dark:bg-slate-800/70 p-2 rounded-md border border-slate-200 dark:border-slate-600';
+    li.innerHTML = `<span class="text-slate-800 dark:text-slate-200">${p}</span>`;
+    const btn = document.createElement('button');
+    btn.innerHTML = '<i class="fa-solid fa-trash-can"></i><span>Remove</span>';
+    btn.className = 'modern-btn bg-red-600 text-white text-sm px-2 py-1 rounded hover:bg-red-700';
+    btn.onclick = async () => {
+      await api(removeEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefix: p })
+      });
+      invalidateTabCache('Outgoing');
+      await loadOutgoing();
+      tabCache.Outgoing = true;
+    };
+    li.appendChild(btn);
+    target.appendChild(li);
+  });
+}
+
+function renderShortcuts(shortcuts) {
+  const target = document.getElementById('shortcutList');
+  target.innerHTML = '';
+  shortcuts.forEach((rule) => {
+    const li = document.createElement('li');
+    li.className = 'flex justify-between items-center bg-slate-50 dark:bg-slate-800/70 p-2 rounded-md border border-slate-200 dark:border-slate-600';
+    li.innerHTML = `<span class="text-slate-800 dark:text-slate-200"><strong>${rule.trigger}</strong> <span class="text-slate-500 dark:text-slate-400">→</span> ${rule.replacement}</span>`;
+    const btn = document.createElement('button');
+    btn.innerHTML = '<i class="fa-solid fa-trash-can"></i><span>Remove</span>';
+    btn.className = 'modern-btn bg-red-600 text-white text-sm px-2 py-1 rounded hover:bg-red-700';
+    btn.onclick = async () => {
+      await api('/api/outgoing/shortcuts/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trigger: rule.trigger })
+      });
+      invalidateTabCache('Outgoing');
+      await loadOutgoing();
+      tabCache.Outgoing = true;
+    };
+    li.appendChild(btn);
+    target.appendChild(li);
+  });
+}
+
+async function loadOutgoing() {
+  const outgoingBlacklist = await api('/api/outgoing/blacklist');
+  const allowed = await api('/api/outgoing/whitelist');
+  const shortcuts = await api('/api/outgoing/shortcuts');
+  renderPrefixList(Array.isArray(outgoingBlacklist) ? outgoingBlacklist : [], 'outgoingBlacklistList', '/api/outgoing/blacklist/remove');
+  document.getElementById('outgoingBlacklistEmpty').style.display =
+    (Array.isArray(outgoingBlacklist) && outgoingBlacklist.length) ? 'none' : 'block';
+  renderPrefixList(Array.isArray(allowed) ? allowed : [], 'allowedPrefixList', '/api/outgoing/whitelist/remove');
+  renderShortcuts(Array.isArray(shortcuts) ? shortcuts : []);
+}
+
+function renderTotpSecrets(secrets) {
+  const list = document.getElementById('totpSecretList');
+  const empty = document.getElementById('totpSecretEmpty');
+  list.innerHTML = '';
+  empty.style.display = secrets.length ? 'none' : 'block';
+  secrets.forEach((entry) => {
+    const li = document.createElement('li');
+    li.className = 'flex justify-between items-center bg-slate-50 dark:bg-slate-800/70 p-2 rounded-md border border-slate-200 dark:border-slate-600';
+    li.innerHTML = `<span class="truncate pr-2 text-slate-800 dark:text-slate-200">${entry.name}</span>`;
+    const btn = document.createElement('button');
+    btn.innerHTML = '<i class="fa-solid fa-trash-can"></i><span>Remove</span>';
+    btn.className = 'modern-btn bg-red-600 text-white text-sm px-2 py-1 rounded hover:bg-red-700';
+    btn.onclick = async () => {
+      await api('/api/totp/secrets/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: entry.name })
+      });
+      invalidateTabCache('Settings');
+      await loadSettings();
+      tabCache.Settings = true;
+    };
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+}
+
+async function loadTime() {
+  const res = await fetch('/api/totp/time');
+  if (!res.ok) throw new Error(`time request failed (${res.status})`);
+  const data = await res.json();
+  document.getElementById('timeIso').textContent = `Time: ${data.iso || '-'}`;
+  document.getElementById('timeEpoch').textContent = `Epoch: ${data.epoch || '-'}`;
+  document.getElementById('timeSynced').textContent = `Synced: ${data.time_synced ? 'yes' : 'no'}`;
+  updateFooterDateFromIso(data.iso);
+}
+
+async function loadWifiSettings() {
+  const data = await api('/api/wifi/config');
+  document.getElementById('wifiSsidInput').value = data.wifi_ssid || '';
+  document.getElementById('wifiPasswordInput').value = data.wifi_password || '';
+}
+
+async function loadSettings() {
+  if (setupApMode && !isAuthenticated) {
+    await loadWifiSettings();
+    return;
+  }
+  const secrets = await api('/api/totp/secrets');
+  const list = Array.isArray(secrets) ? secrets : [];
+  renderTotpSecrets(list);
+  await loadWifiSettings();
+  await loadHttpsSettings();
+  await loadTime();
+}
+
+async function loadHttpsSettings() {
+  const data = await api('/api/tls/config');
+  document.getElementById('httpsCertInput').value = data.cert_pem || '';
+  document.getElementById('httpsKeyInput').value = data.key_pem || '';
+}
+
+function renderAuditLogs(events) {
+  const list = document.getElementById('auditList');
+  const empty = document.getElementById('auditEmpty');
+  list.innerHTML = '';
+  empty.style.display = events.length ? 'none' : 'block';
+  events.forEach((entry) => {
+    const li = document.createElement('li');
+    li.className = 'bg-slate-50 dark:bg-slate-800/70 p-2 rounded-md border border-slate-200 dark:border-slate-600';
+    const ts = entry.ts || '-';
+    const action = entry.action || '-';
+    const detail = entry.detail || '';
+    li.innerHTML = `<p class="text-xs text-slate-500 dark:text-slate-400">${ts}</p><p class="text-sm font-semibold text-slate-800 dark:text-slate-200">${action}</p><p class="text-xs text-slate-600 dark:text-slate-400 break-all">${detail}</p>`;
+    list.appendChild(li);
+  });
+}
+
+function extractRecentCalls(events) {
+  const recent = [];
+  const seen = new Set();
+  events.forEach((event) => {
+    if (!event || !event.action || !event.detail) return;
+    const isIncoming = event.action === 'telephony.incoming.allow' || event.action === 'telephony.incoming.block';
+    const isOutgoing = event.action === 'telephony.outgoing.sent' || event.action === 'telephony.outgoing.failed' || event.action === 'telephony.outgoing.denied';
+    if (!isIncoming && !isOutgoing) return;
+
+    let number = '';
+    if (isIncoming) {
+      const match = event.detail.match(/number=([^\s]+)/);
+      number = match ? match[1] : '';
+    } else {
+      const match = event.detail.match(/routed=([^\s]+)/);
+      number = match ? match[1] : '';
+    }
+    if (!number) return;
+    const key = `${event.action}:${number}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    recent.push({
+      ts: event.ts || '-',
+      number,
+      direction: isIncoming ? 'incoming' : 'outgoing'
+    });
+  });
+  return recent.slice(0, 12);
+}
+
+function renderRecentCalls(events) {
+  const list = document.getElementById('recentCallsList');
+  const empty = document.getElementById('recentCallsEmpty');
+  if (!list || !empty) return;
+  list.innerHTML = '';
+  const recent = extractRecentCalls(events);
+  empty.style.display = recent.length ? 'none' : 'block';
+  recent.forEach((entry) => {
+    const li = document.createElement('li');
+    li.className = 'flex items-center justify-between bg-white dark:bg-slate-800/80 p-2 rounded-md border border-slate-200 dark:border-slate-600';
+    const iconClass = entry.direction === 'incoming' ? 'fa-arrow-down text-emerald-600' : 'fa-arrow-up text-blue-600';
+    const label = entry.direction === 'incoming' ? 'Incoming' : 'Outgoing';
+    li.innerHTML = `<span class="text-sm inline-flex items-center text-slate-900 dark:text-slate-100"><i class="fa-solid ${iconClass} mr-2"></i><strong>${entry.number}</strong><span class="ml-2 text-xs text-slate-500 dark:text-slate-400">${label}</span></span><span class="text-xs text-slate-500 dark:text-slate-400">${entry.ts}</span>`;
+    list.appendChild(li);
+  });
+}
+
+async function loadAuditLogs() {
+  const data = await api('/api/audit');
+  const entries = Array.isArray(data) ? data : [];
+  renderAuditLogs(entries);
+  renderRecentCalls(entries);
+}
+
+function showQrToken(created, isBootstrap) {
+  const box = document.getElementById('totpQrBox');
+  const message = document.getElementById('totpQrMessage');
+  const image = document.getElementById('totpQrImage');
+  box.classList.remove('hidden');
+  renderQr(image, created.otpauth_uri);
+  message.textContent = isBootstrap
+    ? 'No TOTP token existed. A bootstrap token has been created; scan this QR code now because the secret will not be shown again.'
+    : `Token "${created.name}" created. Scan this QR code now; the secret will not be shown again.`;
+}
+
+async function createNewTotpToken(name) {
+  return api('/api/totp/secrets/new', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+}
+
+async function forceSyncFromDateClick() {
+  try {
+    await api('/api/totp/sync', { method: 'POST' });
+    await loadTime();
+    showNotice('Time synced from NTP.', 'success');
+  } catch (e) {
+    showNotice(`Time sync failed: ${e.message}`, 'error');
+  }
+}
+
+async function postFirmwareOta(file) {
+  const totpRaw = document.getElementById('otaTotpInput').value.trim();
+  const totp = totpRaw.replace(/\D/g, '');
+  if (!/^\d{6}$/.test(totp)) {
+    showNotice('Enter a valid 6-digit TOTP for OTA.', 'error');
+    return;
+  }
+  if (!file || file.size <= 0) {
+    showNotice('Choose a firmware .bin file.', 'error');
+    return;
+  }
+  const btn = document.getElementById('otaUploadBtn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/firmware/ota', {
+      method: 'POST',
+      headers: {
+        'X-Session-Token': sessionToken,
+        'X-TOTP': totp,
+        'Content-Type': 'application/octet-stream'
+      },
+      body: file
+    });
+    if (res.status === 401) {
+      if (!setupApMode) {
+        setAuthenticated(false);
+        sessionToken = '';
+      }
+      throw new Error('Session expired or invalid TOTP. Log in again.');
+    }
+    if (!res.ok) {
+      let message = `OTA failed (${res.status})`;
+      try {
+        const data = await res.json();
+        if (data.error) message = data.error;
+      } catch (_) {}
+      throw new Error(message);
+    }
+    document.getElementById('otaTotpInput').value = '';
+    document.getElementById('otaFileInput').value = '';
+    showNotice('Firmware accepted. The device is restarting…', 'success');
+  } catch (e) {
+    const msg = e && e.message ? e.message : 'OTA failed';
+    if (msg === 'Failed to fetch' || (e && e.name === 'TypeError')) {
+      showNotice('Connection closed — the device may be rebooting after a successful update. Wait, then reload the page.', 'success');
+    } else {
+      showNotice(msg, 'error');
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function login() {
+  authError.className = 'hidden';
+  const totp = totpInput.value.trim();
+  if (!/^\d{6}$/.test(totp)) {
+    authError.textContent = 'Enter a 6-digit code.';
+    authError.className = 'mt-3 text-sm text-red-700';
+    return;
+  }
+  const loginRes = await api('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ totp })
+  });
+  sessionToken = (loginRes && loginRes.session_token) ? loginRes.session_token : '';
+  setAuthenticated(true);
+  totpInput.value = '';
+  await enqueueUi(async () => {
+    if (setupApMode) {
+      showNotice('Logged in. You can change Wi-Fi here or use every other tab. Save Wi-Fi when done; the device reboots if it is still on the hotspot.', 'success');
+      await selectTab('Settings');
+      return;
+    }
+    await selectTab(currentTab);
+  });
+}
+
+async function ensureBootstrapIfNeeded() {
+  if (setupApMode) return;
+  let status = { needs_bootstrap: false };
+  try {
+    const res = await fetch('/api/totp/bootstrap/status');
+    status = await res.json();
+  } catch (_) {
+    status = { needs_bootstrap: false };
+  }
+  if (!status.needs_bootstrap) {
+    authBootstrapBox.classList.add('hidden');
+    return;
+  }
+  const created = await api('/api/totp/bootstrap/new', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Bootstrap token' })
+  });
+  renderQr(authBootstrapQr, created.otpauth_uri);
+  authBootstrapBox.classList.remove('hidden');
+}
+
+async function logout() {
+  await api('/api/auth/logout', { method: 'POST' });
+  sessionToken = '';
+  document.getElementById('totpQrBox').classList.add('hidden');
+  clearQr(document.getElementById('totpQrImage'));
+  authBootstrapBox.classList.add('hidden');
+  clearQr(authBootstrapQr);
+  setAuthenticated(false);
+}
+
+document.getElementById('tabRecentCalls').onclick = () => queueSelectTab('RecentCalls');
+document.getElementById('tabIncoming').onclick = () => queueSelectTab('Incoming');
+document.getElementById('tabOutgoing').onclick = () => queueSelectTab('Outgoing');
+document.getElementById('tabSettings').onclick = () => queueSelectTab('Settings');
+document.getElementById('tabAudit').onclick = () => queueSelectTab('Audit');
+document.getElementById('loginBtn').onclick = () => login().catch((e) => {
+  let message = 'Login failed.';
+  if (e && e.message) {
+    if (e.message === 'time not synchronized') {
+      message = 'Login failed: device time is not synchronized yet. Click Date to sync NTP, then retry.';
+    } else {
+      message = `Login failed: ${e.message}`;
+    }
+  }
+  authError.textContent = message;
+  authError.className = 'mt-3 text-sm text-red-700';
+});
+document.getElementById('logoutBtn').onclick = () => logout().catch((e) => showNotice(e.message, 'error'));
+document.getElementById('refreshAuditBtn').onclick = () => {
+  if (!isAuthenticated) return;
+  invalidateTabCache('Audit', 'RecentCalls');
+  enqueueUi(() => loadTabData('Audit', true));
+};
+document.getElementById('syncTimeBtn').onclick = forceSyncFromDateClick;
+
+document.getElementById('addBlacklistBtn').onclick = async () => {
+  const number = document.getElementById('blacklistNumInput').value.trim();
+  if (!number) return;
+  await api('/api/incoming/blacklist/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number }) });
+  document.getElementById('blacklistNumInput').value = '';
+  invalidateTabCache('Incoming');
+  await loadIncomingLists();
+  tabCache.Incoming = true;
+};
+document.getElementById('addWhitelistBtn').onclick = async () => {
+  const number = document.getElementById('whitelistNumInput').value.trim();
+  if (!number) return;
+  await api('/api/incoming/whitelist/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number }) });
+  document.getElementById('whitelistNumInput').value = '';
+  invalidateTabCache('Incoming');
+  await loadIncomingLists();
+  tabCache.Incoming = true;
+};
+document.getElementById('addAllowedPrefixBtn').onclick = async () => {
+  const prefix = document.getElementById('allowedPrefixInput').value.trim();
+  if (!prefix) return;
+  await api('/api/outgoing/whitelist/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefix }) });
+  document.getElementById('allowedPrefixInput').value = '';
+  invalidateTabCache('Outgoing');
+  await loadOutgoing();
+  tabCache.Outgoing = true;
+};
+document.getElementById('addOutgoingBlacklistBtn').onclick = async () => {
+  const prefix = document.getElementById('outgoingBlacklistInput').value.trim();
+  if (!prefix) return;
+  await api('/api/outgoing/blacklist/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefix }) });
+  document.getElementById('outgoingBlacklistInput').value = '';
+  invalidateTabCache('Outgoing');
+  await loadOutgoing();
+  tabCache.Outgoing = true;
+};
+document.getElementById('addShortcutBtn').onclick = async () => {
+  const trigger = document.getElementById('shortcutTriggerInput').value.trim();
+  const replacement = document.getElementById('shortcutReplacementInput').value.trim();
+  if (!trigger || !replacement) return;
+  await api('/api/outgoing/shortcuts/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trigger, replacement }) });
+  document.getElementById('shortcutTriggerInput').value = '';
+  document.getElementById('shortcutReplacementInput').value = '';
+  invalidateTabCache('Outgoing');
+  await loadOutgoing();
+  tabCache.Outgoing = true;
+};
+document.getElementById('newTotpTokenBtn').onclick = async () => {
+  const name = window.prompt('Token name?');
+  if (!name) return;
+  try {
+    const created = await createNewTotpToken(name.trim());
+    showQrToken(created, false);
+    invalidateTabCache('Settings');
+    await loadSettings();
+    tabCache.Settings = true;
+  } catch (e) {
+    showNotice(e.message, 'error');
+  }
+};
+document.getElementById('saveHttpsConfigBtn').onclick = async () => {
+  const cert_pem = document.getElementById('httpsCertInput').value.trim();
+  const key_pem = document.getElementById('httpsKeyInput').value.trim();
+  if (!cert_pem || !key_pem) {
+    showNotice('Certificate and key are required.', 'error');
+    return;
+  }
+  try {
+    const result = await api('/api/tls/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cert_pem, key_pem })
+    });
+    if (result && result.needs_restart) {
+      showNotice('HTTPS config saved. Reboot device to apply.', 'success');
+    } else {
+      showNotice('HTTPS config saved.', 'success');
+    }
+    invalidateTabCache('Settings');
+    tabCache.Settings = true;
+  } catch (e) {
+    showNotice(`HTTPS save failed: ${e.message}`, 'error');
+  }
+};
+
+document.getElementById('saveWifiBtn').onclick = async () => {
+  const wifi_ssid = document.getElementById('wifiSsidInput').value.trim();
+  const wifi_password = document.getElementById('wifiPasswordInput').value;
+  if (!wifi_ssid) {
+    showNotice('SSID is required.', 'error');
+    return;
+  }
+  try {
+    const result = await api('/api/wifi/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wifi_ssid, wifi_password })
+    });
+    if (result && result.restarting) {
+      showNotice('Wi-Fi saved. Rebooting…', 'success');
+    } else if (result && result.needs_restart) {
+      showNotice('Wi-Fi saved. Reboot the device to connect with the new credentials.', 'success');
+    } else {
+      showNotice('Wi-Fi saved.', 'success');
+    }
+    invalidateTabCache('Settings');
+    tabCache.Settings = true;
+  } catch (e) {
+    showNotice(`Wi-Fi save failed: ${e.message}`, 'error');
+  }
+};
+
+document.getElementById('otaUploadBtn').onclick = async () => {
+  const input = document.getElementById('otaFileInput');
+  const file = input && input.files && input.files[0] ? input.files[0] : null;
+  await postFirmwareOta(file);
+};
+
+totpInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('loginBtn').click(); });
+document.getElementById('blacklistNumInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('addBlacklistBtn').click(); });
+document.getElementById('whitelistNumInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('addWhitelistBtn').click(); });
+document.getElementById('allowedPrefixInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('addAllowedPrefixBtn').click(); });
+document.getElementById('outgoingBlacklistInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('addOutgoingBlacklistBtn').click(); });
+document.getElementById('shortcutReplacementInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('addShortcutBtn').click(); });
+document.getElementById('otaTotpInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('otaUploadBtn').click();
+});
+authDateEl.addEventListener('click', forceSyncFromDateClick);
+appDateEl.addEventListener('click', forceSyncFromDateClick);
+
+enqueueUi(async function boot() {
+  try {
+    await selectTab('RecentCalls');
+    await refreshSetupApMode();
+    if (!setupApMode) {
+      try {
+        await loadTime();
+      } catch (_) {}
+    }
+    const authRes = await fetch('/api/auth/status');
+    const s = await authRes.json();
+    isAuthenticated = !!(s && s.authenticated);
+    updateShellVisibility();
+    if (setupApMode) {
+      await selectTab('Settings');
+      return;
+    }
+    if (isAuthenticated) {
+      await selectTab(currentTab);
+      return;
+    }
+    await ensureBootstrapIfNeeded();
+  } catch (_) {
+    isAuthenticated = false;
+    updateShellVisibility();
+  }
+});
+</script>
+
+</body>
+</html>

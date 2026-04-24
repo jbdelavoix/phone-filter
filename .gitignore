@@ -1,0 +1,9 @@
+.pio
+.env
+.vscode/
+.idea/
+node_modules/
+*.swp
+*~
+.DS_Store
+compile_commands.json

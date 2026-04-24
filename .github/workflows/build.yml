@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: platformio.ini
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build firmware (esp32dev)
+        run: pio run -e esp32dev
+
+      - name: Native unit tests
+        run: pio test --environment native
+
+      - name: Stage firmware asset for release
+        if: github.ref_type == 'tag'
+        run: |
+          cp ".pio/build/esp32dev/firmware.bin" \
+            "phonefilter-esp32dev-${GITHUB_REF_NAME}.bin"
+          shasum -a 256 "phonefilter-esp32dev-${GITHUB_REF_NAME}.bin" | tee checksums.txt
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            phonefilter-esp32dev-${{ github.ref_name }}.bin
+            checksums.txt
+          generate_release_notes: true
